@@ -20,6 +20,7 @@
 ## Features
 
 - 주제 기반 `Top 10` 쇼츠 스크립트 자동 생성
+- 외부에서 만든 스크립트 JSON 붙여넣기 지원
 - 생성 진행 UI
 - 생성 이력 조회
 - 최종 영상 다운로드
@@ -30,12 +31,15 @@
 `.env.local` 파일에 아래 값을 설정합니다.
 
 ```bash
+OPENAI_API_KEY=...
 ANTHROPIC_API_KEY=...
 ELEVENLABS_API_KEY=...
+ELEVENLABS_VOICE_ID=...
 PEXELS_API_KEY=...
 
 # optional
 AI_PROVIDER=claude
+OPENAI_MODEL=gpt-5
 TTS_PROVIDER=elevenlabs
 VIDEO_PROVIDER=pexels
 OUTPUT_DIR=./output
@@ -70,6 +74,23 @@ HomePage
   -> POST /api/generate
     -> DB record 생성
     -> ClaudeProvider.generateScript()
+    -> ElevenLabsProvider.synthesize()
+    -> PexelsProvider.search()/download()
+    -> buildSubtitleEntries()
+    -> generateAssSubtitle()
+    -> concatVideos()
+    -> composeFinal()
+    -> DB status = done
+    -> /api/video/serve?id=...
+```
+
+외부에서 직접 만든 스크립트를 쓰는 경우에는 아래 흐름도 지원합니다.
+
+```text
+HomePage
+  -> POST /api/generate-from-script
+    -> Script JSON validation
+    -> DB record 생성
     -> ElevenLabsProvider.synthesize()
     -> PexelsProvider.search()/download()
     -> buildSubtitleEntries()
@@ -152,16 +173,45 @@ SQLite 파일 `shorts.db`에 생성 작업 상태를 저장합니다.
 
 ## Provider Notes
 
-- `AI_PROVIDER=openai`는 현재 인터페이스만 있고 실제 구현은 비어 있습니다.
+- `AI_PROVIDER=openai`를 사용하면 `OPENAI_API_KEY`와 `OPENAI_MODEL`로 OpenAI 모델을 사용할 수 있습니다.
 - 기본 AI provider는 `claude`입니다.
 - 기본 TTS provider는 `elevenlabs`입니다.
 - 기본 영상 provider는 `pexels`입니다.
+- ElevenLabs 무료 플랜에서는 Voice Library 음성이 막힐 수 있으니 `ELEVENLABS_VOICE_ID`에 Default voice ID를 넣는 것을 권장합니다.
+
+## Using ChatGPT Or Claude Manually
+
+웹 구독형 ChatGPT 또는 Claude에서 스크립트를 직접 만든 뒤, 앱의 `스크립트 붙여넣기` 탭에 JSON을 넣어 영상만 렌더링할 수 있습니다.
+
+필수 형식:
+
+```json
+{
+  "hook": "시청자 관심을 끄는 문장",
+  "intro": "오늘은 ... Top 10을 알려드립니다",
+  "items": [
+    {
+      "rank": 10,
+      "title": "항목 이름",
+      "description": "설명 문장",
+      "searchQuery": "english search keywords",
+      "duration": 5
+    }
+  ],
+  "cta": "구독과 좋아요 부탁드립니다",
+  "metadata": {
+    "title": "영상 제목",
+    "description": "영상 설명",
+    "tags": ["태그1", "태그2"]
+  }
+}
+```
 
 ## Current Limitations
 
 - 진행 상태 UI는 실시간 polling 없이 단순 단계 표시입니다.
 - 자막 타이밍은 실제 음성 구간 정렬이 아니라 고정 duration 기반입니다.
-- Claude 응답은 JSON 정규식 추출로 파싱합니다.
+- Claude는 JSON 정규식 추출, OpenAI는 Structured Outputs 기반 JSON 응답으로 파싱합니다.
 - 생성 작업은 백그라운드 큐 없이 요청 한 번에서 끝까지 동기 실행됩니다.
 
 ## Agent Files

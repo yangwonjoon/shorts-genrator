@@ -2,15 +2,17 @@ import 'server-only';
 import type { AIService } from './ai-service';
 import type { TTSService } from './tts-service';
 import type { VideoService } from './video-service';
+import { OpenAIProvider } from './openai.provider';
+import { ClaudeProvider } from './claude.provider';
+import { ElevenLabsProvider } from './elevenlabs.provider';
+import { PexelsProvider } from './pexels.provider';
 
 export function getAIService(): AIService {
   switch (process.env.AI_PROVIDER || 'claude') {
     case 'openai': {
-      const { OpenAIProvider } = require('./openai.provider');
       return new OpenAIProvider();
     }
     default: {
-      const { ClaudeProvider } = require('./claude.provider');
       return new ClaudeProvider();
     }
   }
@@ -19,7 +21,6 @@ export function getAIService(): AIService {
 export function getTTSService(): TTSService {
   switch (process.env.TTS_PROVIDER || 'elevenlabs') {
     default: {
-      const { ElevenLabsProvider } = require('./elevenlabs.provider');
       return new ElevenLabsProvider();
     }
   }
@@ -28,7 +29,6 @@ export function getTTSService(): TTSService {
 export function getVideoService(): VideoService {
   switch (process.env.VIDEO_PROVIDER || 'pexels') {
     default: {
-      const { PexelsProvider } = require('./pexels.provider');
       return new PexelsProvider();
     }
   }

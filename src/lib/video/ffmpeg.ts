@@ -1,7 +1,51 @@
 import ffmpeg from 'fluent-ffmpeg';
 import path from 'path';
 import fs from 'fs';
+import { execFileSync } from 'child_process';
 import { VIDEO } from '@/config/constants';
+
+function escapeFilterPath(filePath: string): string {
+  return path
+    .resolve(filePath)
+    .replace(/\\/g, '\\\\')
+    .replace(/:/g, '\\:')
+    .replace(/,/g, '\\,')
+    .replace(/\[/g, '\\[')
+    .replace(/\]/g, '\\]')
+    .replace(/'/g, "\\'");
+}
+
+let cachedSubtitleFilter:
+  | 'ass'
+  | 'subtitles'
+  | 'none'
+  | null = null;
+
+function getSubtitleFilter(): 'ass' | 'subtitles' | 'none' {
+  if (cachedSubtitleFilter) return cachedSubtitleFilter;
+
+  try {
+    const output = execFileSync('ffmpeg', ['-filters'], {
+      encoding: 'utf-8',
+    });
+
+    if (/\bass\b/.test(output)) {
+      cachedSubtitleFilter = 'ass';
+      return cachedSubtitleFilter;
+    }
+
+    if (/\bsubtitles\b/.test(output)) {
+      cachedSubtitleFilter = 'subtitles';
+      return cachedSubtitleFilter;
+    }
+  } catch {
+    cachedSubtitleFilter = 'none';
+    return cachedSubtitleFilter;
+  }
+
+  cachedSubtitleFilter = 'none';
+  return cachedSubtitleFilter;
+}
 
 /**
  * Concatenate multiple video clips into one, scaling to 9:16 format.
@@ -59,11 +103,17 @@ export function composeFinal(
   return new Promise((resolve, reject) => {
     const dir = path.dirname(outputPath);
     if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    const escapedSubtitlePath = escapeFilterPath(subtitlePath);
+    const subtitleFilter = getSubtitleFilter();
+    const command = ffmpeg().input(videoPath).input(audioPath);
 
-    ffmpeg()
-      .input(videoPath)
-      .input(audioPath)
-      .videoFilter(`ass='${subtitlePath.replace(/'/g, "'\\''")}'`)
+    if (subtitleFilter === 'ass') {
+      command.videoFilter(`ass=filename='${escapedSubtitlePath}'`);
+    } else if (subtitleFilter === 'subtitles') {
+      command.videoFilter(`subtitles=filename='${escapedSubtitlePath}'`);
+    }
+
+    command
       .outputOptions([
         '-c:v', 'libx264',
         '-preset', 'fast',

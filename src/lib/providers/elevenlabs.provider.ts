@@ -5,15 +5,18 @@ const ELEVENLABS_API_URL = 'https://api.elevenlabs.io/v1';
 
 export class ElevenLabsProvider implements TTSService {
   private apiKey: string;
+  private defaultVoiceId: string;
 
   constructor() {
     const apiKey = process.env.ELEVENLABS_API_KEY;
     if (!apiKey) throw new Error('ELEVENLABS_API_KEY is not set');
     this.apiKey = apiKey;
+    this.defaultVoiceId =
+      process.env.ELEVENLABS_VOICE_ID || 'EXAVITQu4vr4xnSDxMaL';
   }
 
   async synthesize(request: TTSRequest): Promise<TTSResult> {
-    const voiceId = request.voiceId || '21m00Tcm4TlvDq8ikWAM'; // Rachel (default)
+    const voiceId = request.voiceId || this.defaultVoiceId;
 
     const response = await fetch(
       `${ELEVENLABS_API_URL}/text-to-speech/${voiceId}`,

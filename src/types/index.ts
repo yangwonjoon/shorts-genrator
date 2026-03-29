@@ -92,6 +92,11 @@ export interface GenerateRequest {
   itemCount?: number;
 }
 
+export interface GenerateFromScriptRequest {
+  topic?: string;
+  script: ScriptResult;
+}
+
 export interface GenerateResponse {
   id: string;
   status: GenerationStatus;

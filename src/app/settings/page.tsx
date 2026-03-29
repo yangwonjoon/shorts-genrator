@@ -4,6 +4,13 @@ import { Header } from '@/components/header';
 
 const API_KEYS = [
   {
+    id: 'openai',
+    label: 'OpenAI API Key',
+    env: 'OPENAI_API_KEY',
+    description: 'OpenAI/Codex 계열 모델로 스크립트를 생성할 때 필요합니다',
+    link: 'https://platform.openai.com/api-keys',
+  },
+  {
     id: 'anthropic',
     label: 'Anthropic API Key',
     env: 'ANTHROPIC_API_KEY',
@@ -16,6 +23,13 @@ const API_KEYS = [
     env: 'ELEVENLABS_API_KEY',
     description: 'TTS 음성 생성에 필요합니다',
     link: 'https://elevenlabs.io/',
+  },
+  {
+    id: 'elevenlabs-voice',
+    label: 'ElevenLabs Voice ID',
+    env: 'ELEVENLABS_VOICE_ID',
+    description: '무료 플랜에서는 Default voice의 Voice ID를 넣어 사용하는 것을 권장합니다',
+    link: 'https://elevenlabs.io/app/voice-library',
   },
   {
     id: 'pexels',
@@ -37,6 +51,16 @@ export default function SettingsPage() {
             <p className="text-sm text-zinc-400 mb-6">
               API 키는 <code className="text-violet-400">.env.local</code> 파일에서
               관리됩니다. 서버를 재시작해야 적용됩니다.
+            </p>
+            <p className="text-sm text-zinc-500 mb-6">
+              AI 제공자를 바꾸려면 <code className="text-violet-400">AI_PROVIDER</code>
+              를 <code className="text-violet-400">claude</code> 또는{' '}
+              <code className="text-violet-400">openai</code>로 설정하세요.
+            </p>
+            <p className="text-sm text-zinc-500 mb-6">
+              ElevenLabs 무료 플랜에서 API를 테스트할 때는{' '}
+              <code className="text-violet-400">ELEVENLABS_VOICE_ID</code>에
+              Default voice의 ID를 넣어주세요.
             </p>
           </div>
 
