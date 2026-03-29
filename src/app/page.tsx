@@ -1,65 +1,133 @@
-import Image from "next/image";
+'use client';
 
-export default function Home() {
+import { useState, useCallback } from 'react';
+import { Header } from '@/components/header';
+import { TopicInput } from '@/components/topic-input';
+import { GenerationProgress } from '@/components/generation-progress';
+import { ScriptPreview } from '@/components/script-preview';
+import { VideoPlayer } from '@/components/video-player';
+import { STEPS } from '@/config/constants';
+import type { ProgressStep, ScriptResult, GenerateResponse } from '@/types';
+
+export default function HomePage() {
+  const [topic, setTopic] = useState('');
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [steps, setSteps] = useState<ProgressStep[]>([]);
+  const [script, setScript] = useState<ScriptResult | null>(null);
+  const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const initSteps = useCallback((): ProgressStep[] => {
+    return STEPS.map((s) => ({
+      id: s.id,
+      label: s.label,
+      status: 'waiting' as const,
+    }));
+  }, []);
+
+  const updateStep = useCallback(
+    (stepId: string, status: ProgressStep['status']) => {
+      setSteps((prev) =>
+        prev.map((s) => (s.id === stepId ? { ...s, status } : s))
+      );
+    },
+    []
+  );
+
+  const handleGenerate = useCallback(async () => {
+    if (!topic.trim() || isGenerating) return;
+
+    setIsGenerating(true);
+    setError(null);
+    setScript(null);
+    setVideoUrl(null);
+    setJobId(null);
+
+    const currentSteps = initSteps();
+    setSteps(currentSteps);
+
+    // Show step progression - the /api/generate endpoint handles everything sequentially
+    updateStep('script', 'active');
+
+    try {
+      const res = await fetch('/api/generate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ topic: topic.trim() }),
+      });
+
+      const data = (await res.json()) as GenerateResponse;
+
+      if (!res.ok || data.status === 'failed') {
+        throw new Error(data.error || '생성에 실패했습니다');
+      }
+
+      // All steps completed
+      updateStep('script', 'done');
+      updateStep('tts', 'done');
+      updateStep('background', 'done');
+      updateStep('compose', 'done');
+
+      if (data.script) setScript(data.script);
+      if (data.videoUrl) setVideoUrl(data.videoUrl);
+      if (data.id) setJobId(data.id);
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다';
+      setError(message);
+
+      setSteps((prev) =>
+        prev.map((s) =>
+          s.status === 'waiting' || s.status === 'active'
+            ? { ...s, status: 'error' as const }
+            : s
+        )
+      );
+    } finally {
+      setIsGenerating(false);
+    }
+  }, [topic, isGenerating, initSteps, updateStep]);
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
+    <div className="flex-1 flex flex-col">
+      <Header title="🎬 영상 생성" />
+
+      <div className="flex-1 flex flex-col items-center justify-center p-6">
+        {/* Title - shown when idle */}
+        {!isGenerating && !script && !error && (
+          <div className="text-center mb-8">
+            <h2 className="text-3xl font-bold text-white mb-2">
+              Top 10 숏폼 생성기
+            </h2>
+            <p className="text-zinc-400">
+              주제를 입력하면 자동으로 유튜브 숏폼 영상을 만들어 드립니다
+            </p>
+          </div>
+        )}
+
+        <TopicInput
+          value={topic}
+          onChange={setTopic}
+          onSubmit={handleGenerate}
+          disabled={isGenerating}
         />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
-        </div>
-      </main>
+
+        {steps.length > 0 && <GenerationProgress steps={steps} />}
+
+        {error && (
+          <div className="mt-6 p-4 bg-red-500/10 border border-red-500/30 rounded-xl text-red-400 text-sm max-w-md mx-auto">
+            <p className="font-medium">오류 발생</p>
+            <p className="mt-1 text-red-300">{error}</p>
+          </div>
+        )}
+
+        {videoUrl && jobId && (
+          <VideoPlayer videoUrl={videoUrl} jobId={jobId} />
+        )}
+
+        {script && <ScriptPreview script={script} />}
+      </div>
     </div>
   );
 }
