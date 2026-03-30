@@ -61,12 +61,19 @@ export interface VideoSearchResult {
   previewUrl: string;
 }
 
+export interface ManualVideoSelection {
+  itemIndex: number;
+  searchQuery: string;
+  selectedDownloadUrl?: string;
+}
+
 // === Generation Types ===
 
 export type GenerationStatus =
   | 'pending'
   | 'scripting'
   | 'tts'
+  | 'background'
   | 'composing'
   | 'done'
   | 'failed';
@@ -75,6 +82,12 @@ export interface GenerationRecord {
   id: string;
   topic: string;
   status: GenerationStatus;
+  progressStep: string | null;
+  progressMessage: string | null;
+  progressLog: string[] | null;
+  progressCurrent: number | null;
+  progressTotal: number | null;
+  inputMode: 'topic' | 'script';
   script: ScriptResult | null;
   audioPath: string | null;
   videoPath: string | null;
@@ -95,11 +108,16 @@ export interface GenerateRequest {
 export interface GenerateFromScriptRequest {
   topic?: string;
   script: ScriptResult;
+  videoSelections?: ManualVideoSelection[];
 }
 
 export interface GenerateResponse {
   id: string;
   status: GenerationStatus;
+  progressStep?: string | null;
+  progressMessage?: string | null;
+  progressCurrent?: number | null;
+  progressTotal?: number | null;
   script?: ScriptResult;
   videoUrl?: string;
   error?: string;

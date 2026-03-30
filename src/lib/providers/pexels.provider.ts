@@ -21,12 +21,8 @@ export class PexelsProvider implements VideoService {
       per_page: '5',
     });
 
-    if (request.minDuration) {
-      params.set('min_duration', String(request.minDuration));
-    }
-
     const response = await fetch(
-      `${PEXELS_API_URL}/videos/search?${params}`,
+      `${PEXELS_API_URL}/v1/search?${params}`,
       {
         headers: { Authorization: this.apiKey },
       }
@@ -38,27 +34,32 @@ export class PexelsProvider implements VideoService {
 
     const data = await response.json();
 
-    return data.videos.map(
-      (video: {
+    return data.photos.map(
+      (photo: {
         id: number;
-        duration: number;
-        video_files: { link: string; width: number; height: number }[];
-        video_pictures: { picture: string }[];
+        width: number;
+        height: number;
+        src: {
+          original?: string;
+          large2x?: string;
+          large?: string;
+          medium?: string;
+        };
       }) => {
-        // Prefer HD portrait video file
-        const file =
-          video.video_files.find(
-            (f: { width: number; height: number }) =>
-              f.height >= 1080 && f.width <= f.height
-          ) || video.video_files[0];
+        const downloadUrl =
+          photo.src.large2x ||
+          photo.src.large ||
+          photo.src.original ||
+          photo.src.medium ||
+          '';
 
         return {
-          id: String(video.id),
-          downloadUrl: file.link,
-          duration: video.duration,
-          width: file.width,
-          height: file.height,
-          previewUrl: video.video_pictures?.[0]?.picture || '',
+          id: String(photo.id),
+          downloadUrl,
+          duration: request.minDuration || 0,
+          width: photo.width,
+          height: photo.height,
+          previewUrl: photo.src.medium || downloadUrl,
         };
       }
     );
@@ -72,7 +73,7 @@ export class PexelsProvider implements VideoService {
 
     const response = await fetch(url);
     if (!response.ok) {
-      throw new Error(`Failed to download video: ${response.statusText}`);
+      throw new Error(`Failed to download media: ${response.statusText}`);
     }
 
     const arrayBuffer = await response.arrayBuffer();

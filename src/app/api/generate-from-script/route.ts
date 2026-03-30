@@ -2,7 +2,11 @@ import { NextResponse } from 'next/server';
 import { v4 as uuidv4 } from 'uuid';
 import { createGenerationJob, runVideoPipelineFromScript, updateStatus } from '@/lib/generation/pipeline';
 import { validateScriptResult } from '@/lib/script/validation';
-import type { GenerateResponse, ScriptResult } from '@/types';
+import type {
+  GenerateResponse,
+  ManualVideoSelection,
+  ScriptResult,
+} from '@/types';
 
 export async function POST(request: Request) {
   const jobId = uuidv4();
@@ -11,6 +15,7 @@ export async function POST(request: Request) {
     const body = (await request.json()) as {
       topic?: string;
       script?: ScriptResult;
+      videoSelections?: ManualVideoSelection[];
     };
 
     const validation = validateScriptResult(body.script);
@@ -28,14 +33,28 @@ export async function POST(request: Request) {
       );
     }
 
-    await createGenerationJob(jobId, topic);
-    await runVideoPipelineFromScript(jobId, script);
+    await createGenerationJob(jobId, topic, 'script');
+
+    void runVideoPipelineFromScript(jobId, script, body.videoSelections || []).catch(
+      async (error) => {
+        const message =
+          error instanceof Error ? error.message : 'Generation failed';
+        await updateStatus(jobId, 'failed', {
+          error: message,
+          progressStep: 'failed',
+          progressMessage: message,
+        }).catch(() => {});
+      }
+    );
 
     const response: GenerateResponse = {
       id: jobId,
-      status: 'done',
+      status: 'pending',
+      progressStep: 'queued',
+      progressMessage: '생성 작업이 시작되었습니다',
+      progressCurrent: 0,
+      progressTotal: 4,
       script,
-      videoUrl: `/api/video/serve?id=${jobId}`,
     };
 
     return NextResponse.json(response);

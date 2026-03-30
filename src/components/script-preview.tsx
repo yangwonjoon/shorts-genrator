@@ -9,20 +9,41 @@ interface ScriptPreviewProps {
 
 export function ScriptPreview({ script }: ScriptPreviewProps) {
   const [isOpen, setIsOpen] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function handleCopy() {
+    try {
+      await navigator.clipboard.writeText(
+        JSON.stringify(script, null, 2)
+      );
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1500);
+    } catch {
+      setCopied(false);
+    }
+  }
 
   return (
     <div className="w-full max-w-2xl mx-auto mt-6">
-      <button
-        onClick={() => setIsOpen(!isOpen)}
-        className="flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors"
-      >
-        <span
-          className={`transition-transform ${isOpen ? 'rotate-90' : ''}`}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => setIsOpen(!isOpen)}
+          className="flex items-center gap-2 text-sm text-zinc-400 hover:text-white transition-colors"
         >
-          ▶
-        </span>
-        스크립트 보기
-      </button>
+          <span
+            className={`transition-transform ${isOpen ? 'rotate-90' : ''}`}
+          >
+            ▶
+          </span>
+          스크립트 보기
+        </button>
+        <button
+          onClick={handleCopy}
+          className="px-3 py-1.5 text-xs bg-zinc-800 hover:bg-zinc-700 text-white rounded-md transition-colors"
+        >
+          {copied ? '복사됨' : 'JSON 복사'}
+        </button>
+      </div>
 
       {isOpen && (
         <div className="mt-3 p-5 bg-zinc-800/50 border border-zinc-700 rounded-xl space-y-4 text-sm">

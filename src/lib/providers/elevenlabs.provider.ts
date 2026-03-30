@@ -32,7 +32,7 @@ export class ElevenLabsProvider implements TTSService {
           voice_settings: {
             stability: 0.5,
             similarity_boost: 0.75,
-            speed: request.speed || 1.0,
+            speed: request.speed || 1.2,
           },
         }),
       }

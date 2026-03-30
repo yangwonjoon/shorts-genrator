@@ -1,11 +1,12 @@
 'use client';
 
 import { useState, useCallback } from 'react';
+import { useRouter } from 'next/navigation';
 import { Header } from '@/components/header';
 import { TopicInput } from '@/components/topic-input';
 import { ScriptJsonInput } from '@/components/script-json-input';
+import { VideoCandidateSelector } from '@/components/video-candidate-selector';
 import { GenerationProgress } from '@/components/generation-progress';
-import { ScriptPreview } from '@/components/script-preview';
 import { VideoPlayer } from '@/components/video-player';
 import { STEPS } from '@/config/constants';
 import { validateScriptResult } from '@/lib/script/validation';
@@ -13,18 +14,64 @@ import type {
   ProgressStep,
   ScriptResult,
   GenerateResponse,
+  GenerationRecord,
   GenerateFromScriptRequest,
+  ManualVideoSelection,
+  VideoSearchResult,
 } from '@/types';
 
+interface CandidateState {
+  query: string;
+  results: VideoSearchResult[];
+  selectedDownloadUrl?: string;
+  loading: boolean;
+  error?: string;
+}
+
+function applyProgressSteps(record: Pick<GenerationRecord, 'status' | 'progressCurrent'>): ProgressStep[] {
+  const steps = STEPS.map((step) => ({
+    id: step.id,
+    label: step.label,
+    status: 'waiting' as const,
+  }));
+
+  const order = ['script', 'tts', 'background', 'compose'];
+  const completed = Math.max(0, Math.min(record.progressCurrent || 0, order.length));
+
+  for (let i = 0; i < completed; i++) {
+    steps[i].status = 'done';
+  }
+
+  if (record.status === 'failed') {
+    const activeIndex = Math.min(completed, order.length - 1);
+    if (steps[activeIndex]) steps[activeIndex].status = 'error';
+    return steps;
+  }
+
+  if (record.status !== 'done') {
+    const activeIndex = Math.min(completed, order.length - 1);
+    if (steps[activeIndex]) steps[activeIndex].status = 'active';
+  } else {
+    steps.forEach((step) => {
+      step.status = 'done';
+    });
+  }
+
+  return steps;
+}
+
 export default function HomePage() {
+  const router = useRouter();
   const [mode, setMode] = useState<'topic' | 'script'>('topic');
+  const [scriptStage, setScriptStage] = useState<'input' | 'select'>('input');
   const [topic, setTopic] = useState('');
   const [scriptJson, setScriptJson] = useState('');
+  const [pendingScript, setPendingScript] = useState<ScriptResult | null>(null);
+  const [videoCandidates, setVideoCandidates] = useState<CandidateState[]>([]);
   const [isGenerating, setIsGenerating] = useState(false);
   const [steps, setSteps] = useState<ProgressStep[]>([]);
   const [script, setScript] = useState<ScriptResult | null>(null);
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
-  const [jobId, setJobId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const initSteps = useCallback((): ProgressStep[] => {
@@ -44,6 +91,162 @@ export default function HomePage() {
     []
   );
 
+  const fetchCandidates = useCallback(
+    async (query: string, minDuration?: number) => {
+      const response = await fetch('/api/video/background', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          query,
+          orientation: 'portrait',
+          minDuration,
+        }),
+      });
+
+      const data = (await response.json()) as { results?: VideoSearchResult[]; error?: string };
+
+      if (!response.ok) {
+        throw new Error(data.error || '영상 검색에 실패했습니다');
+      }
+
+      return data.results || [];
+    },
+    []
+  );
+
+  const prepareScriptSelection = useCallback(async () => {
+    const parsed = JSON.parse(scriptJson) as unknown;
+    const validation = validateScriptResult(parsed);
+
+    if (!validation.ok) {
+      throw new Error(validation.error);
+    }
+
+    const validatedScript = validation.script;
+    setPendingScript(validatedScript);
+    setScript(validatedScript);
+    setVideoUrl(null);
+    setSteps([]);
+
+    const initialCandidates: CandidateState[] = validatedScript.items.map((item) => ({
+      query: item.searchQuery,
+      results: [],
+      selectedDownloadUrl: undefined,
+      loading: true,
+      error: undefined,
+    }));
+
+    setVideoCandidates(initialCandidates);
+    setScriptStage('select');
+
+    const hydrated = await Promise.all(
+      validatedScript.items.map(async (item) => {
+        try {
+          const results = await fetchCandidates(item.searchQuery, item.duration);
+          return {
+            query: item.searchQuery,
+            results,
+            selectedDownloadUrl: results[0]?.downloadUrl,
+            loading: false,
+            error: undefined,
+          } satisfies CandidateState;
+        } catch (error) {
+          return {
+            query: item.searchQuery,
+            results: [],
+            selectedDownloadUrl: undefined,
+            loading: false,
+            error:
+              error instanceof Error ? error.message : '영상 검색에 실패했습니다',
+          } satisfies CandidateState;
+        }
+      })
+    );
+
+    setVideoCandidates(hydrated);
+  }, [scriptJson, fetchCandidates]);
+
+  const refreshCandidate = useCallback(
+    async (itemIndex: number) => {
+      const item = pendingScript?.items[itemIndex];
+      const current = videoCandidates[itemIndex];
+
+      if (!item || !current?.query.trim()) return;
+
+      setVideoCandidates((prev) =>
+        prev.map((candidate, index) =>
+          index === itemIndex
+            ? { ...candidate, loading: true, error: undefined }
+            : candidate
+        )
+      );
+
+      try {
+        const results = await fetchCandidates(current.query, item.duration);
+        setVideoCandidates((prev) =>
+          prev.map((candidate, index) =>
+            index === itemIndex
+              ? {
+                  ...candidate,
+                  results,
+                  selectedDownloadUrl: results[0]?.downloadUrl,
+                  loading: false,
+                  error: undefined,
+                }
+              : candidate
+          )
+        );
+      } catch (error) {
+        setVideoCandidates((prev) =>
+          prev.map((candidate, index) =>
+            index === itemIndex
+              ? {
+                  ...candidate,
+                  loading: false,
+                  error:
+                    error instanceof Error
+                      ? error.message
+                      : '영상 검색에 실패했습니다',
+                }
+              : candidate
+          )
+        );
+      }
+    },
+    [fetchCandidates, pendingScript, videoCandidates]
+  );
+
+  const handleGenerateFromPreparedScript = useCallback(async () => {
+    if (!pendingScript) {
+      throw new Error('먼저 스크립트를 준비해주세요');
+    }
+
+    updateStep('script', 'done');
+    updateStep('tts', 'active');
+
+    const videoSelections: ManualVideoSelection[] = videoCandidates.map(
+      (candidate, itemIndex) => ({
+        itemIndex,
+        searchQuery: candidate.query,
+        selectedDownloadUrl: candidate.selectedDownloadUrl,
+      })
+    );
+
+    const payload: GenerateFromScriptRequest = {
+      topic: pendingScript.metadata.title,
+      script: pendingScript,
+      videoSelections,
+    };
+
+    const res = await fetch('/api/generate-from-script', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+
+    return res;
+  }, [pendingScript, updateStep, videoCandidates]);
+
   const handleGenerate = useCallback(async () => {
     if (isGenerating) return;
 
@@ -51,7 +254,6 @@ export default function HomePage() {
     setError(null);
     setScript(null);
     setVideoUrl(null);
-    setJobId(null);
 
     const currentSteps = initSteps();
     setSteps(currentSteps);
@@ -71,26 +273,7 @@ export default function HomePage() {
           body: JSON.stringify({ topic: topic.trim() }),
         });
       } else {
-        const parsed = JSON.parse(scriptJson) as unknown;
-        const validation = validateScriptResult(parsed);
-
-        if (!validation.ok) {
-          throw new Error(validation.error);
-        }
-
-        updateStep('script', 'done');
-        updateStep('tts', 'active');
-
-        const payload: GenerateFromScriptRequest = {
-          topic: validation.script.metadata.title,
-          script: validation.script,
-        };
-
-        res = await fetch('/api/generate-from-script', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload),
-        });
+        res = await handleGenerateFromPreparedScript();
       }
 
       const data = (await res.json()) as GenerateResponse;
@@ -99,15 +282,18 @@ export default function HomePage() {
         throw new Error(data.error || '생성에 실패했습니다');
       }
 
-      // All steps completed
-      updateStep('script', 'done');
-      updateStep('tts', 'done');
-      updateStep('background', 'done');
-      updateStep('compose', 'done');
+      if (data.id) {
+        router.push(`/history/${data.id}`);
+        return;
+      }
 
       if (data.script) setScript(data.script);
-      if (data.videoUrl) setVideoUrl(data.videoUrl);
-      if (data.id) setJobId(data.id);
+      setSteps(
+        applyProgressSteps({
+          status: data.status,
+          progressCurrent: data.progressCurrent ?? 0,
+        })
+      );
     } catch (err) {
       const message =
         err instanceof Error ? err.message : '알 수 없는 오류가 발생했습니다';
@@ -123,7 +309,7 @@ export default function HomePage() {
     } finally {
       setIsGenerating(false);
     }
-  }, [topic, scriptJson, mode, isGenerating, initSteps, updateStep]);
+  }, [topic, mode, isGenerating, initSteps, updateStep, handleGenerateFromPreparedScript, router]);
 
   return (
     <div className="flex-1 flex flex-col">
@@ -144,7 +330,10 @@ export default function HomePage() {
         <div className="w-full max-w-3xl mx-auto mb-5">
           <div className="inline-flex p-1 bg-zinc-900 border border-zinc-800 rounded-xl">
             <button
-              onClick={() => setMode('topic')}
+              onClick={() => {
+                setMode('topic');
+                setScriptStage('input');
+              }}
               disabled={isGenerating}
               className={`px-4 py-2 text-sm font-medium rounded-lg transition-colors ${
                 mode === 'topic'
@@ -175,13 +364,41 @@ export default function HomePage() {
             onSubmit={handleGenerate}
             disabled={isGenerating}
           />
+        ) : scriptStage === 'input' ? (
+          <div className="w-full">
+            <ScriptJsonInput
+              value={scriptJson}
+              onChange={setScriptJson}
+              onSubmit={prepareScriptSelection}
+              disabled={isGenerating}
+            />
+          </div>
         ) : (
-          <ScriptJsonInput
-            value={scriptJson}
-            onChange={setScriptJson}
-            onSubmit={handleGenerate}
-            disabled={isGenerating}
-          />
+          pendingScript && (
+            <VideoCandidateSelector
+              script={pendingScript}
+              candidates={videoCandidates}
+              disabled={isGenerating}
+              onQueryChange={(itemIndex, query) =>
+                setVideoCandidates((prev) =>
+                  prev.map((candidate, index) =>
+                    index === itemIndex ? { ...candidate, query } : candidate
+                  )
+                )
+              }
+              onRefresh={refreshCandidate}
+              onSelect={(itemIndex, downloadUrl) =>
+                setVideoCandidates((prev) =>
+                  prev.map((candidate, index) =>
+                    index === itemIndex
+                      ? { ...candidate, selectedDownloadUrl: downloadUrl }
+                      : candidate
+                  )
+                )
+              }
+              onContinue={handleGenerate}
+            />
+          )
         )}
 
         {steps.length > 0 && <GenerationProgress steps={steps} />}
@@ -193,11 +410,10 @@ export default function HomePage() {
           </div>
         )}
 
-        {videoUrl && jobId && (
-          <VideoPlayer videoUrl={videoUrl} jobId={jobId} />
+        {videoUrl && (
+          <VideoPlayer videoUrl={videoUrl} jobId="preview" />
         )}
 
-        {script && <ScriptPreview script={script} />}
       </div>
     </div>
   );
